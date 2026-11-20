@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from werkzeug.security import generate_password_hash
 
-# Use writable temporary storage on Vercel
+# Database location
 if os.environ.get("VERCEL"):
     DB_PATH = Path("/tmp/parking.db")
 else:
@@ -56,19 +56,24 @@ def init_db():
         for number in range(1, 11):
             conn.execute(
                 """INSERT OR IGNORE INTO parking_slots
-                (slot_number, status) VALUES (?, 'available')""",
+                (slot_number, status)
+                VALUES (?, 'available')""",
                 (f"P{number:02d}",)
             )
 
-        if conn.execute(
-            "SELECT id FROM users WHERE username = 'admin'"
-        ).fetchone() is None:
-            conn.execute(
-                """INSERT INTO users
-                (username, password_hash, role)
-                VALUES (?, ?, 'admin')""",
-                ("admin", generate_password_hash("admin123"))
-            )
+        # Create or reset the demo admin account
+        admin_password = os.environ.get(
+            "SMARTPARK_ADMIN_PASSWORD", "admin123"
+        )
+
+        password_hash = generate_password_hash(admin_password)
+
+        conn.execute("""
+            INSERT INTO users (username, password_hash, role)
+            VALUES ('admin', ?, 'admin')
+            ON CONFLICT(username)
+            DO UPDATE SET password_hash = excluded.password_hash
+        """, (password_hash,))
 
         conn.commit()
 
