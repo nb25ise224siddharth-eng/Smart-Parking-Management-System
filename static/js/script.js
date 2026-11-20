@@ -2,7 +2,6 @@
 const $ = (selector, parent = document) => parent.querySelector(selector);
 const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 
-/* Get the latest CSRF token from the page */
 function getCsrfToken() {
     return (
         $('input[name="csrf_token"]')?.value ||
@@ -11,7 +10,6 @@ function getCsrfToken() {
     );
 }
 
-/* Toast notification */
 function showToast(message, type = "success") {
     const toast = $("#toast");
 
@@ -20,7 +18,17 @@ function showToast(message, type = "success") {
         return;
     }
 
-    toast.textContent = message;
+    const title = $("#toastTitle");
+    const messageElement = $("#toastMessage");
+
+    if (title) {
+        title.textContent = type === "error" ? "Error" : "Success";
+    }
+
+    if (messageElement) {
+        messageElement.textContent = message;
+    }
+
     toast.className = `toast show ${type}`;
 
     setTimeout(() => {
@@ -28,12 +36,11 @@ function showToast(message, type = "success") {
     }, 3000);
 }
 
-/* API request with CSRF protection */
 async function apiRequest(url, data = {}) {
     const csrfToken = getCsrfToken();
 
     if (!csrfToken) {
-        throw new Error("Security token missing. Please refresh the page and log in again.");
+        throw new Error("Security token missing. Refresh the page and log in again.");
     }
 
     const body = new URLSearchParams(data);
@@ -52,27 +59,60 @@ async function apiRequest(url, data = {}) {
     const result = await response.json();
 
     if (!response.ok) {
-        throw new Error(result.message || "Request failed");
+        throw new Error(result.message || "Request failed.");
     }
 
     return result;
 }
 
-/* Menu button */
+/* Mobile menu */
 $("#menuButton")?.addEventListener("click", () => {
     $(".sidebar")?.classList.toggle("open");
 });
 
 /* Booking modal */
-$("#openBooking")?.addEventListener("click", () => {
-    $("#bookingModal")?.classList.add("active");
+const bookingModal = $("#bookingModal");
+
+function openBooking(slotNumber) {
+    if (!bookingModal) {
+        showToast("Booking modal not found.", "error");
+        return;
+    }
+
+    const slotInput = $("#slotNumber");
+    const modalSlot = $("#modalSlot");
+    const vehicleInput = $("#vehicleNumber");
+
+    if (slotInput) slotInput.value = slotNumber;
+    if (modalSlot) modalSlot.textContent = slotNumber;
+
+    if (vehicleInput) vehicleInput.value = "";
+
+    bookingModal.classList.add("active");
+    bookingModal.setAttribute("aria-hidden", "false");
+
+    vehicleInput?.focus();
+}
+
+function closeBooking() {
+    bookingModal?.classList.remove("active");
+    bookingModal?.setAttribute("aria-hidden", "true");
+}
+
+/* Connect every Book button */
+$$(".book").forEach((button) => {
+    button.addEventListener("click", () => {
+        openBooking(button.dataset.slot);
+    });
 });
 
-$("#closeBooking")?.addEventListener("click", () => {
-    $("#bookingModal")?.classList.remove("active");
-});
+/* Close buttons */
+$("#closeBooking")?.addEventListener("click", closeBooking);
+$(".modal-close")?.addEventListener("click", closeBooking);
 
-/* Book parking slot */
+$(".modal-backdrop")?.addEventListener("click", closeBooking);
+
+/* Booking form submission */
 $("#bookingForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -86,9 +126,7 @@ $("#bookingForm")?.addEventListener("submit", async (event) => {
         });
 
         showToast(result.message, "success");
-        form.reset();
-
-        $("#bookingModal")?.classList.remove("active");
+        closeBooking();
 
         setTimeout(() => {
             window.location.reload();
@@ -133,14 +171,14 @@ $$(".release").forEach((button) => {
     });
 });
 
-/* Occupancy bar */
+/* Occupancy progress bar */
 $$("[data-width]").forEach((element) => {
     element.style.width = `${element.dataset.width}%`;
 });
 
-/* Close modal when clicking outside */
-$("#bookingModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "bookingModal") {
-        event.currentTarget.classList.remove("active");
+/* Close modal using Escape */
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closeBooking();
     }
 });
