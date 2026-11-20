@@ -1,186 +1,146 @@
 
-const $ = (s, p = document) => p.querySelector(s);
-const $$ = (s, p = document) => [...p.querySelectorAll(s)];
+const $ = (selector, parent = document) => parent.querySelector(selector);
+const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 
-$('#menuButton')?.addEventListener('click', () => {
-    $('#sidebar')?.classList.toggle('open');
-});
-
+/* Get the latest CSRF token from the page */
 function getCsrfToken() {
-    return $('input[name="csrf_token"]')?.value ||
-           $('meta[name="csrf-token"]')?.content ||
-           '';
-}
-
-function showToast(message, error = false, title = 'Parking Updated') {
-    const toast = $('#toast');
-    if (!toast) return;
-
-    $('#toastTitle').textContent = title;
-    $('#toastMessage').textContent = message;
-    toast.classList.toggle('error', error);
-    $('#toastIcon').textContent = error ? '!' : '✓';
-    toast.classList.add('show');
-
-    clearTimeout(window.toastTimer);
-    window.toastTimer = setTimeout(
-        () => toast.classList.remove('show'), 3500
+    return (
+        $('input[name="csrf_token"]')?.value ||
+        $('meta[name="csrf-token"]')?.content ||
+        ''
     );
 }
 
-const modal = $('#bookingModal');
+/* Toast notification */
+function showToast(message, type = "success") {
+    const toast = $("#toast");
 
-function openBooking(slot) {
-    if (!modal) return;
+    if (!toast) {
+        alert(message);
+        return;
+    }
 
-    $('#modalSlot').textContent = slot;
-    $('#slotNumber').value = slot;
-    $('#vehicleNumber').value = '';
+    toast.textContent = message;
+    toast.className = `toast show ${type}`;
 
-    modal.classList.add('open');
-    modal.setAttribute('aria-hidden', 'false');
-
-    setTimeout(() => $('#vehicleNumber')?.focus(), 100);
+    setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3000);
 }
 
-function closeBooking() {
-    if (!modal) return;
+/* API request with CSRF protection */
+async function apiRequest(url, data = {}) {
+    const csrfToken = getCsrfToken();
 
-    modal.classList.remove('open');
-    modal.setAttribute('aria-hidden', 'true');
-}
-
-$$('.book').forEach(button => {
-    button.addEventListener('click', () => {
-        openBooking(button.dataset.slot);
-    });
-});
-
-$$('.release').forEach(button => {
-    button.addEventListener('click', () => {
-        const slot = button.dataset.slot;
-
-        if (confirm(`Release parking slot ${slot}?`)) {
-            releaseSlot(slot);
-        }
-    });
-});
-
-$('.modal-close')?.addEventListener('click', closeBooking);
-$('.modal-backdrop')?.addEventListener('click', closeBooking);
-
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeBooking();
-});
-
-async function apiRequest(url, data) {
-    const token = getCsrfToken();
-
-    if (!token) {
-        throw new Error('Security token missing. Refresh the page and try again.');
+    if (!csrfToken) {
+        throw new Error("Security token missing. Please refresh the page and log in again.");
     }
 
     const body = new URLSearchParams(data);
-    body.set('csrf_token', token);
+    body.set("csrf_token", csrfToken);
 
     const response = await fetch(url, {
-        method: 'POST',
-        credentials: 'same-origin',
+        method: "POST",
+        credentials: "same-origin",
         headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-CSRF-Token': token
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRF-Token": csrfToken
         },
-        body
+        body: body
     });
 
     const result = await response.json();
 
     if (!response.ok) {
-        throw new Error(result.message || 'Operation failed');
+        throw new Error(result.message || "Request failed");
     }
 
     return result;
 }
 
-$('#bookingForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
+/* Menu button */
+$("#menuButton")?.addEventListener("click", () => {
+    $(".sidebar")?.classList.toggle("open");
+});
 
-    const submit = e.submitter || $('button[type="submit"]', e.target);
-    const vehicle = $('#vehicleNumber').value
-        .replace(/[^A-Za-z0-9]/g, '')
-        .toUpperCase();
+/* Booking modal */
+$("#openBooking")?.addEventListener("click", () => {
+    $("#bookingModal")?.classList.add("active");
+});
 
-    if (!/^[A-Z0-9]{4,12}$/.test(vehicle)) {
-        showToast(
-            'Enter 4–12 letters or numbers.',
-            true,
-            'Invalid registration'
-        );
-        return;
-    }
+$("#closeBooking")?.addEventListener("click", () => {
+    $("#bookingModal")?.classList.remove("active");
+});
 
-    if (submit) submit.disabled = true;
+/* Book parking slot */
+$("#bookingForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     try {
-        const result = await apiRequest('/api/book', {
-            slot_number: $('#slotNumber').value,
-            vehicle_number: vehicle
+        const result = await apiRequest("/api/book", {
+            slot_number: formData.get("slot_number"),
+            vehicle_number: formData.get("vehicle_number")
         });
 
-        closeBooking();
-        showToast(result.message, false, 'Booking confirmed');
+        showToast(result.message, "success");
+        form.reset();
 
-        setTimeout(() => location.reload(), 650);
+        $("#bookingModal")?.classList.remove("active");
+
+        setTimeout(() => {
+            window.location.reload();
+        }, 800);
+
     } catch (error) {
-        showToast(error.message, true, 'Booking failed');
-    } finally {
-        if (submit) submit.disabled = false;
+        showToast(error.message, "error");
     }
 });
 
-async function releaseSlot(slot) {
-    try {
-        const result = await apiRequest('/api/release', {
-            slot_number: slot
-        });
+/* Release parking slot */
+$$(".release").forEach((button) => {
+    button.addEventListener("click", async () => {
+        const slotNumber = button.dataset.slot;
 
-        showToast(result.message, false, 'Slot released');
-        setTimeout(() => location.reload(), 650);
-    } catch (error) {
-        showToast(error.message, true, 'Release failed');
-    }
-}
+        if (!slotNumber) {
+            showToast("Parking slot number is missing.", "error");
+            return;
+        }
 
-const canvas = $('#utilisationChart');
+        if (!confirm(`Are you sure you want to release ${slotNumber}?`)) {
+            return;
+        }
 
-if (canvas && window.Chart) {
-    new Chart(canvas, {
-        type: 'doughnut',
-        data: {
-            labels: ['Available', 'Occupied'],
-            datasets: [{
-                data: [
-                    Number($('#chartAvailable')?.textContent || 0),
-                    Number($('#chartOccupied')?.textContent || 0)
-                ],
-                backgroundColor: ['#32c785', '#f05e70'],
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            cutout: '74%',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#111b2a',
-                    titleColor: '#edf4ff',
-                    bodyColor: '#aeb7c5',
-                    padding: 10
-                }
-            }
+        button.disabled = true;
+
+        try {
+            const result = await apiRequest("/api/release", {
+                slot_number: slotNumber
+            });
+
+            showToast(result.message, "success");
+
+            setTimeout(() => {
+                window.location.reload();
+            }, 800);
+
+        } catch (error) {
+            showToast(error.message, "error");
+            button.disabled = false;
         }
     });
-}
+});
+
+/* Occupancy bar */
+$$("[data-width]").forEach((element) => {
+    element.style.width = `${element.dataset.width}%`;
+});
+
+/* Close modal when clicking outside */
+$("#bookingModal")?.addEventListener("click", (event) => {
+    if (event.target.id === "bookingModal") {
+        event.currentTarget.classList.remove("active");
+    }
+});
