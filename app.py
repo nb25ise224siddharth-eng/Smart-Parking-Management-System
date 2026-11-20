@@ -17,7 +17,6 @@ from database import get_db, init_db
 
 app = Flask(__name__)
 
-# Use the same secret key across all Vercel instances.
 secret_key = os.environ.get("SMARTPARK_SECRET")
 
 if not secret_key and os.environ.get("VERCEL"):
@@ -30,7 +29,6 @@ app.config.update(
     SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")),
 )
 
-# Initialize database
 init_db()
 
 
@@ -38,7 +36,6 @@ def now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Generate or retrieve CSRF token
 def csrf_token():
     token = session.get("csrf_token")
 
@@ -52,10 +49,8 @@ def csrf_token():
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 
-# CSRF protection for all POST, PUT, PATCH and DELETE requests
 @app.before_request
 def protect_mutations():
-
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
 
         supplied = (
@@ -72,34 +67,27 @@ def protect_mutations():
         ):
             return jsonify({
                 "success": False,
-                "message": "Invalid or missing security token. Refresh the page and try again."
+                "message": "Invalid or missing security token. Refresh and try again."
             }), 403
 
 
-# Admin login protection
 def login_required(role=None):
-
     def decorator(view):
-
         @wraps(view)
         def wrapped(*args, **kwargs):
 
             is_api = request.path.startswith("/api/")
 
             if not session.get("user_id"):
-
                 if is_api:
                     return jsonify({
                         "success": False,
                         "message": "Please log in as an administrator."
                     }), 401
 
-                return redirect(
-                    url_for("login", next=request.path)
-                )
+                return redirect(url_for("login", next=request.path))
 
             if role and session.get("role") != role:
-
                 if is_api:
                     return jsonify({
                         "success": False,
@@ -112,79 +100,64 @@ def login_required(role=None):
             return view(*args, **kwargs)
 
         return wrapped
-
     return decorator
 
 
-# Dashboard statistics and parking slots
 def stats_and_slots(search=None):
-
     conn = get_db()
 
-    slots = conn.execute(
-        "SELECT * FROM parking_slots ORDER BY slot_number"
-    ).fetchall()
-
-    total = len(slots)
-
-    occupied = sum(
-        1 for slot in slots
-        if slot["status"] == "occupied"
-    )
-
-    available = total - occupied
-
-    stats = {
-        "total": total,
-        "available": available,
-        "occupied": occupied,
-        "percentage": round(
-            occupied / total * 100 if total else 0, 1
-        )
-    }
-
-    history = conn.execute(
-        """
-        SELECT * FROM parking_history
-        ORDER BY id DESC LIMIT 8
-        """
-    ).fetchall()
-
-    if search:
-
-        term = f"%{search.strip()}%"
-
+    try:
         slots = conn.execute(
-            """
-            SELECT * FROM parking_slots
-            WHERE slot_number LIKE ?
-            OR vehicle_number LIKE ?
-            ORDER BY slot_number
-            """,
-            (term, term)
+            "SELECT * FROM parking_slots ORDER BY slot_number"
         ).fetchall()
+
+        total = len(slots)
+        occupied = sum(1 for s in slots if s["status"] == "occupied")
+        available = total - occupied
+
+        stats = {
+            "total": total,
+            "available": available,
+            "occupied": occupied,
+            "percentage": round(
+                occupied / total * 100 if total else 0, 1
+            )
+        }
 
         history = conn.execute(
-            """
-            SELECT * FROM parking_history
-            WHERE slot_number LIKE ?
-            OR vehicle_number LIKE ?
-            ORDER BY id DESC
-            """,
-            (term, term)
+            "SELECT * FROM parking_history ORDER BY id DESC LIMIT 8"
         ).fetchall()
 
-    conn.close()
+        if search:
+            term = f"%{search.strip()}%"
 
-    return stats, slots, history
+            slots = conn.execute(
+                """
+                SELECT * FROM parking_slots
+                WHERE slot_number LIKE ? OR vehicle_number LIKE ?
+                ORDER BY slot_number
+                """,
+                (term, term)
+            ).fetchall()
+
+            history = conn.execute(
+                """
+                SELECT * FROM parking_history
+                WHERE slot_number LIKE ? OR vehicle_number LIKE ?
+                ORDER BY id DESC
+                """,
+                (term, term)
+            ).fetchall()
+
+        return stats, slots, history
+
+    finally:
+        conn.close()
 
 
-# Public dashboard
 @app.route("/")
 def index():
-
     search = request.args.get("q", "").strip()
-
     stats, slots, history = stats_and_slots(search)
 
     return render_template(
@@ -196,26 +169,20 @@ def index():
     )
 
 
-# API: Get parking slots
 @app.route("/api/slots")
 def api_slots():
-
-    stats, slots, _ = stats_and_slots(
-        request.args.get("q", "")
-    )
+    stats, slots, _ = stats_and_slots(request.args.get("q", ""))
 
     return jsonify({
         "success": True,
         "stats": stats,
-        "slots": [dict(slot) for slot in slots]
+        "slots": [dict(s) for s in slots]
     })
 
 
-# API: Book parking slot (ADMIN ONLY)
 @app.route("/api/book", methods=["POST"])
 @login_required("admin")
 def book_slot():
-
     slot_number = request.form.get(
         "slot_number", ""
     ).strip().upper()
@@ -226,8 +193,13 @@ def book_slot():
         request.form.get("vehicle_number", "").upper()
     )
 
-    if not re.fullmatch(r"[A-Z0-9]{4,12}", vehicle_number):
+    if not slot_number:
+        return jsonify({
+            "success": False,
+            "message": "Parking slot number is missing."
+        }), 400
 
+    if not re.fullmatch(r"[A-Z0-9]{4,12}", vehicle_number):
         return jsonify({
             "success": False,
             "message": "Enter a valid vehicle registration number."
@@ -235,232 +207,208 @@ def book_slot():
 
     conn = get_db()
 
-    slot = conn.execute(
-        """
-        SELECT * FROM parking_slots
-        WHERE slot_number = ?
-        """,
-        (slot_number,)
-    ).fetchone()
+    try:
+        slot = conn.execute(
+            "SELECT * FROM parking_slots WHERE slot_number = ?",
+            (slot_number,)
+        ).fetchone()
 
-    if not slot:
+        if not slot:
+            return jsonify({
+                "success": False,
+                "message": "Parking slot not found."
+            }), 404
 
-        conn.close()
+        if slot["status"] == "occupied":
+            return jsonify({
+                "success": False,
+                "message": "This parking slot is already occupied."
+            }), 409
+
+        existing_vehicle = conn.execute(
+            "SELECT id FROM parking_slots WHERE vehicle_number = ?",
+            (vehicle_number,)
+        ).fetchone()
+
+        if existing_vehicle:
+            return jsonify({
+                "success": False,
+                "message": "This vehicle is already parked."
+            }), 409
+
+        booked = now_text()
+
+        conn.execute(
+            """
+            UPDATE parking_slots
+            SET status = 'occupied',
+                vehicle_number = ?,
+                booking_time = ?
+            WHERE slot_number = ?
+            """,
+            (vehicle_number, booked, slot_number)
+        )
+
+        conn.execute(
+            """
+            INSERT INTO parking_history
+            (slot_number, vehicle_number, booking_time, status)
+            VALUES (?, ?, ?, 'active')
+            """,
+            (slot_number, vehicle_number, booked)
+        )
+
+        conn.commit()
 
         return jsonify({
-            "success": False,
-            "message": "Parking slot not found."
-        }), 404
+            "success": True,
+            "message": f"Vehicle {vehicle_number} booked in {slot_number}."
+        })
 
-    if slot["status"] == "occupied":
-
-        conn.close()
-
+    except Exception:
+        conn.rollback()
+        app.logger.exception("Booking failed")
         return jsonify({
             "success": False,
-            "message": "This parking slot is already occupied."
-        }), 409
+            "message": "Unable to book this parking slot."
+        }), 500
 
-    existing_vehicle = conn.execute(
-        """
-        SELECT id FROM parking_slots
-        WHERE vehicle_number = ?
-        """,
-        (vehicle_number,)
-    ).fetchone()
-
-    if existing_vehicle:
-
+    finally:
         conn.close()
 
-        return jsonify({
-            "success": False,
-            "message": "This vehicle is already parked in another slot."
-        }), 409
 
-    booked = now_text()
-
-    conn.execute(
-        """
-        UPDATE parking_slots
-        SET status = 'occupied',
-            vehicle_number = ?,
-            booking_time = ?
-        WHERE slot_number = ?
-        """,
-        (vehicle_number, booked, slot_number)
-    )
-
-    conn.execute(
-        """
-        INSERT INTO parking_history
-        (slot_number, vehicle_number, booking_time, status)
-        VALUES (?, ?, ?, 'active')
-        """,
-        (slot_number, vehicle_number, booked)
-    )
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        "success": True,
-        "message": f"Vehicle {vehicle_number} booked in {slot_number}."
-    })
-
-
-# API: Release parking slot (ADMIN ONLY)
 @app.route("/api/release", methods=["POST"])
 @login_required("admin")
 def release_slot():
-
     slot_number = request.form.get(
         "slot_number", ""
     ).strip().upper()
 
+    if not slot_number:
+        return jsonify({
+            "success": False,
+            "message": "Parking slot number is missing."
+        }), 400
+
     conn = get_db()
 
-    slot = conn.execute(
-        """
-        SELECT * FROM parking_slots
-        WHERE slot_number = ?
-        """,
-        (slot_number,)
-    ).fetchone()
+    try:
+        slot = conn.execute(
+            "SELECT * FROM parking_slots WHERE slot_number = ?",
+            (slot_number,)
+        ).fetchone()
 
-    if not slot:
+        if not slot:
+            return jsonify({
+                "success": False,
+                "message": "Parking slot not found."
+            }), 404
 
-        conn.close()
+        if slot["status"] != "occupied":
+            return jsonify({
+                "success": False,
+                "message": "This parking slot is already available."
+            }), 409
 
-        return jsonify({
-            "success": False,
-            "message": "Parking slot not found."
-        }), 404
+        released = now_text()
+        vehicle_number = slot["vehicle_number"]
 
-    if slot["status"] != "occupied":
-
-        conn.close()
-
-        return jsonify({
-            "success": False,
-            "message": "This parking slot is already available."
-        }), 409
-
-    released = now_text()
-
-    conn.execute(
-        """
-        UPDATE parking_slots
-        SET status = 'available',
-            vehicle_number = NULL,
-            booking_time = NULL
-        WHERE slot_number = ?
-        """,
-        (slot_number,)
-    )
-
-    conn.execute(
-        """
-        UPDATE parking_history
-        SET release_time = ?,
-            status = 'released'
-        WHERE slot_number = ?
-        AND vehicle_number = ?
-        AND status = 'active'
-        """,
-        (
-            released,
-            slot_number,
-            slot["vehicle_number"]
+        conn.execute(
+            """
+            UPDATE parking_slots
+            SET status = 'available',
+                vehicle_number = NULL,
+                booking_time = NULL
+            WHERE slot_number = ?
+            """,
+            (slot_number,)
         )
-    )
 
-    conn.commit()
-    conn.close()
+        conn.execute(
+            """
+            UPDATE parking_history
+            SET release_time = ?, status = 'released'
+            WHERE slot_number = ?
+              AND vehicle_number = ?
+              AND status = 'active'
+            """,
+            (released, slot_number, vehicle_number)
+        )
 
-    return jsonify({
-        "success": True,
-        "message": f"{slot_number} is now available."
-    })
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"{slot_number} released successfully."
+        })
+
+    except Exception:
+        conn.rollback()
+        app.logger.exception("Release failed")
+        return jsonify({
+            "success": False,
+            "message": "Unable to release the parking slot."
+        }), 500
+
+    finally:
+        conn.close()
 
 
-# Parking history
 @app.route("/history")
 def history():
-
     search = request.args.get("q", "").strip()
-
     conn = get_db()
 
-    if search:
+    try:
+        if search:
+            term = f"%{search}%"
 
-        term = f"%{search}%"
+            records = conn.execute(
+                """
+                SELECT * FROM parking_history
+                WHERE slot_number LIKE ? OR vehicle_number LIKE ?
+                ORDER BY id DESC
+                """,
+                (term, term)
+            ).fetchall()
+        else:
+            records = conn.execute(
+                "SELECT * FROM parking_history ORDER BY id DESC"
+            ).fetchall()
 
-        records = conn.execute(
-            """
-            SELECT * FROM parking_history
-            WHERE slot_number LIKE ?
-            OR vehicle_number LIKE ?
-            ORDER BY id DESC
-            """,
-            (term, term)
-        ).fetchall()
+        return render_template(
+            "history.html",
+            records=records,
+            search=search
+        )
 
-    else:
-
-        records = conn.execute(
-            """
-            SELECT * FROM parking_history
-            ORDER BY id DESC
-            """
-        ).fetchall()
-
-    conn.close()
-
-    return render_template(
-        "history.html",
-        records=records,
-        search=search
-    )
+    finally:
+        conn.close()
 
 
-# Login
 @app.route("/login", methods=["GET", "POST"])
 def login():
-
     if request.method == "POST":
-
-        username = request.form.get(
-            "username", ""
-        ).strip()
-
-        password = request.form.get(
-            "password", ""
-        )
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
 
         conn = get_db()
 
-        user = conn.execute(
-            """
-            SELECT * FROM users
-            WHERE username = ?
-            """,
-            (username,)
-        ).fetchone()
-
-        conn.close()
+        try:
+            user = conn.execute(
+                "SELECT * FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()
+        finally:
+            conn.close()
 
         if user and check_password_hash(
             user["password_hash"], password
         ):
-
             session.clear()
-
             session["user_id"] = user["id"]
             session["username"] = user["username"]
             session["role"] = user["role"]
-
-            # Create a fresh CSRF token after login
             session["csrf_token"] = secrets.token_hex(32)
 
             return redirect(
@@ -472,20 +420,15 @@ def login():
     return render_template("login.html")
 
 
-# Logout
 @app.route("/logout")
 def logout():
-
     session.clear()
-
     return redirect(url_for("index"))
 
 
-# Admin dashboard
 @app.route("/admin")
 @login_required("admin")
 def admin():
-
     stats, slots, history = stats_and_slots(
         request.args.get("q", "")
     )
@@ -498,9 +441,9 @@ def admin():
     )
 
 
-# Error handler
 @app.errorhandler(500)
 def internal_error(error):
+    app.logger.exception("Internal server error")
 
     return jsonify({
         "success": False,
@@ -508,9 +451,7 @@ def internal_error(error):
     }), 500
 
 
-# Run locally
 if __name__ == "__main__":
-
     app.run(
         host="127.0.0.1",
         port=5000,
