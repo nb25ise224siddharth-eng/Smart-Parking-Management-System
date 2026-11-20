@@ -1,1 +1,277 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Control · SmartPark</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap"><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body><div class="app-shell"><aside class="sidebar" id="sidebar"><a class="brand" href="/"><span class="brand-mark">S</span><span>Smart<span>Park</span></span></a><nav><a class="nav-link" href="/"><span>▦</span>Dashboard</a><a class="nav-link" href="/history"><span>◷</span>Parking History</a><a class="nav-link active" href="/admin"><span>⚙</span>Admin Panel</a></nav></aside><main><header class="topbar"><button class="menu-button" id="menuButton">☰</button><div><p class="eyebrow">SECURE CONTROL CENTRE</p><h1>Administrator</h1></div><div class="top-actions"><a class="admin-logout" href="/logout">Sign out</a></div></header><div class="content"><section class="stats-grid"><article class="stat-card"><div class="stat-icon blue">▦</div><div><p>Total Slots</p><h2>{{ stats.total }}</h2></div></article><article class="stat-card"><div class="stat-icon green">✓</div><div><p>Available</p><h2>{{ stats.available }}</h2></div></article><article class="stat-card"><div class="stat-icon red">P</div><div><p>Occupied</p><h2>{{ stats.occupied }}</h2></div></article><article class="stat-card"><div class="stat-icon amber">%</div><div><p>Occupancy</p><h2>{{ stats.percentage }}%</h2></div></article></section><section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">LIVE SLOT CONTROL</p><h3>Parking overview</h3></div></div><div class="table-wrap"><table><thead><tr><th>Slot</th><th>Status</th><th>Vehicle</th><th>Booking time</th><th>Control</th></tr></thead><tbody>{% for slot in slots %}<tr><td><b>{{ slot.slot_number }}</b></td><td><span class="table-status {{ slot.status }}">{{ slot.status|title }}</span></td><td>{{ slot.vehicle_number or '—' }}</td><td>{{ slot.booking_time or '—' }}</td><td>{% if slot.status == 'occupied' %}<button class="small-button danger release" data-slot="{{ slot.slot_number }}">Release</button>{% else %}<button class="small-button book" data-slot="{{ slot.slot_number }}">Book</button>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section></div></main></div><div class="modal" id="bookingModal" aria-hidden="true"><div class="modal-backdrop"></div><div class="modal-card"><button class="modal-close">×</button><div class="modal-icon">P</div><p class="eyebrow">ADMIN BOOKING</p><h2>Book <span id="modalSlot">P01</span></h2><form id="bookingForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="slot_number" id="slotNumber"><label for="vehicleNumber">Vehicle registration number</label><input id="vehicleNumber" name="vehicle_number" maxlength="12" required><button class="primary-button" type="submit">Confirm Booking</button></form></div></div><div class="toast" id="toast"><span id="toastIcon">✓</span><div><b id="toastTitle">Success</b><p id="toastMessage"></p></div></div><script src="{{ url_for('static', filename='js/script.js') }}"></script></body></html>
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Admin Control · SmartPark</title>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+<div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+
+        <a class="brand" href="/">
+            <span class="brand-mark">S</span>
+            <span>Smart<span>Park</span></span>
+        </a>
+
+        <nav>
+            <a class="nav-link" href="/">
+                <span>▦</span> Dashboard
+            </a>
+
+            <a class="nav-link" href="/history">
+                <span>◷</span> Parking History
+            </a>
+
+            <a class="nav-link active" href="/admin">
+                <span>⚙</span> Admin Panel
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="system-state">
+                <i></i>
+                <div>
+                    <b>System Operational</b>
+                    <small>Administrator access</small>
+                </div>
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- Main Content -->
+    <main>
+
+        <header class="topbar">
+
+            <button class="menu-button" id="menuButton" aria-label="Toggle navigation">
+                ☰
+            </button>
+
+            <div>
+                <p class="eyebrow">SECURE CONTROL CENTRE</p>
+                <h1>Administrator</h1>
+            </div>
+
+            <div class="top-actions">
+                <a class="admin-logout" href="/logout">Sign out</a>
+            </div>
+
+        </header>
+
+        <div class="content">
+
+            <!-- Statistics -->
+            <section class="stats-grid">
+
+                <article class="stat-card">
+                    <div class="stat-icon blue">▦</div>
+                    <div>
+                        <p>Total Slots</p>
+                        <h2>{{ stats.total }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon green">✓</div>
+                    <div>
+                        <p>Available</p>
+                        <h2>{{ stats.available }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon red">P</div>
+                    <div>
+                        <p>Occupied</p>
+                        <h2>{{ stats.occupied }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon amber">%</div>
+                    <div>
+                        <p>Occupancy</p>
+                        <h2>{{ stats.percentage }}%</h2>
+                    </div>
+                </article>
+
+            </section>
+
+            <!-- Parking Slot Management -->
+            <section class="panel table-panel">
+
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">LIVE SLOT CONTROL</p>
+                        <h3>Parking Overview</h3>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+
+                    <table>
+
+                        <thead>
+                            <tr>
+                                <th>Slot</th>
+                                <th>Status</th>
+                                <th>Vehicle</th>
+                                <th>Booking Time</th>
+                                <th>Control</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+
+                            {% for slot in slots %}
+
+                            <tr>
+
+                                <td>
+                                    <b>{{ slot.slot_number }}</b>
+                                </td>
+
+                                <td>
+                                    <span class="table-status {{ slot.status }}">
+                                        {{ slot.status|title }}
+                                    </span>
+                                </td>
+
+                                <td>
+                                    {{ slot.vehicle_number or '—' }}
+                                </td>
+
+                                <td>
+                                    {{ slot.booking_time or '—' }}
+                                </td>
+
+                                <td>
+
+                                    {% if slot.status == 'occupied' %}
+
+                                        <button
+                                            class="small-button danger release"
+                                            data-slot="{{ slot.slot_number }}">
+                                            Release
+                                        </button>
+
+                                    {% else %}
+
+                                        <button
+                                            class="small-button book"
+                                            data-slot="{{ slot.slot_number }}">
+                                            Book
+                                        </button>
+
+                                    {% endif %}
+
+                                </td>
+
+                            </tr>
+
+                            {% else %}
+
+                            <tr>
+                                <td colspan="5">No parking slots found.</td>
+                            </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </section>
+
+        </div>
+
+    </main>
+
+</div>
+
+<!-- Booking Modal -->
+<div class="modal" id="bookingModal" aria-hidden="true">
+
+    <div class="modal-backdrop"></div>
+
+    <div class="modal-card">
+
+        <button class="modal-close" aria-label="Close">×</button>
+
+        <div class="modal-icon">P</div>
+
+        <p class="eyebrow">ADMIN BOOKING</p>
+
+        <h2>
+            Book <span id="modalSlot">P01</span>
+        </h2>
+
+        <p>Enter the vehicle registration number to confirm the booking.</p>
+
+        <form id="bookingForm">
+
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token() }}"
+            >
+
+            <input
+                type="hidden"
+                name="slot_number"
+                id="slotNumber"
+            >
+
+            <label for="vehicleNumber">
+                Vehicle Registration Number
+            </label>
+
+            <input
+                id="vehicleNumber"
+                name="vehicle_number"
+                maxlength="12"
+                placeholder="MH12AB1234"
+                autocomplete="off"
+                required
+            >
+
+            <button class="primary-button" type="submit">
+                Confirm Booking
+            </button>
+
+        </form>
+
+    </div>
+
+</div>
+
+<!-- Toast Notification -->
+<div class="toast" id="toast">
+
+    <span id="toastIcon">✓</span>
+
+    <div>
+        <b id="toastTitle">Success</b>
+        <p id="toastMessage"></p>
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+</body>
+</html>

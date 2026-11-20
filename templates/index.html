@@ -1,11 +1,282 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartPark · Parking Dashboard</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
-<body><div class="app-shell">
-<aside class="sidebar" id="sidebar"><a class="brand" href="/"><span class="brand-mark">S</span><span>Smart<span>Park</span></span></a><nav><a class="nav-link active" href="/"><span>▦</span>Dashboard</a><a class="nav-link" href="/history"><span>◷</span>Parking History</a><a class="nav-link" href="/admin"><span>⚙</span>Admin Panel</a></nav><div class="sidebar-footer"><div class="system-state"><i></i><div><b>System Operational</b><small>Live monitoring</small></div></div></div></aside>
-<main><header class="topbar"><button class="menu-button" id="menuButton" aria-label="Toggle navigation">☰</button><div><p class="eyebrow">SMART CITY OPERATIONS</p><h1>Parking Overview</h1></div><div class="top-actions"><form class="search" action="/" method="get"><span>⌕</span><input name="q" value="{{ search }}" placeholder="Search vehicle or slot"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>{% if session.get('user_id') %}<a class="avatar" href="/logout" title="Logout">A</a>{% else %}<a class="avatar login-avatar" href="/login" title="Admin login">→</a>{% endif %}</div></header>
-<div class="content"><section class="stats-grid"><article class="stat-card"><div class="stat-icon blue">▦</div><div><p>Total Parking Slots</p><h2 id="totalSlots">{{ stats.total }}</h2></div></article><article class="stat-card"><div class="stat-icon green">✓</div><div><p>Available Slots</p><h2 id="availableSlots">{{ stats.available }}</h2></div></article><article class="stat-card"><div class="stat-icon red">P</div><div><p>Occupied Slots</p><h2 id="occupiedSlots">{{ stats.occupied }}</h2></div></article><article class="stat-card"><div class="stat-icon amber">%</div><div><p>Occupancy</p><h2 id="occupancyValue">{{ stats.percentage }}%</h2></div><div class="progress"><span id="occupancyBar" style="width:{{ stats.percentage }}%"></span></div></article></section>
-<section class="dashboard-grid"><div class="panel slots-panel"><div class="panel-heading"><div><p class="eyebrow">LIVE STATUS</p><h3>Parking Slots</h3></div><div class="legend"><span><i class="green-dot"></i>Available</span><span><i class="red-dot"></i>Occupied</span></div></div><div class="slots-grid" id="slotsGrid">{% for slot in slots %}<article class="parking-slot {{ slot.status }}" data-slot="{{ slot.slot_number }}"><div class="slot-top"><strong>{{ slot.slot_number }}</strong><span class="status-pill">{{ 'Occupied' if slot.status == 'occupied' else 'Available' }}</span></div><div class="slot-visual"><div class="car">🚗</div></div><div class="slot-info">{% if slot.status == 'occupied' %}<span>VEHICLE</span><b>{{ slot.vehicle_number }}</b>{% else %}<span>STATUS</span><b>Ready to park</b>{% endif %}</div>{% if slot.status == 'available' %}<button class="slot-button book" data-slot="{{ slot.slot_number }}">Book Slot</button>{% else %}<button class="slot-button release" data-slot="{{ slot.slot_number }}">Release Slot</button>{% endif %}</article>{% endfor %}</div></div>
-<div class="panel analytics-panel"><div class="panel-heading"><div><p class="eyebrow">ANALYTICS</p><h3>Utilisation</h3></div></div><div class="chart-wrap"><canvas id="utilisationChart"></canvas></div><div class="chart-caption"><span>Available <b id="chartAvailable">{{ stats.available }}</b></span><span>Occupied <b id="chartOccupied">{{ stats.occupied }}</b></span></div></div></section>
-<section class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">LATEST EVENTS</p><h3>Recent Parking Activity</h3></div><a href="/history">View history →</a></div><div class="activity-list">{% for item in history %}<div class="activity-item"><div class="activity-icon {{ 'out' if item.status == 'released' else 'in' }}">{{ '↗' if item.status == 'released' else '↙' }}</div><div><b>{{ item.vehicle_number }}</b><span>{{ item.slot_number }} · {{ 'Released' if item.status == 'released' else 'Parked' }}</span></div><time>{{ item.release_time or item.booking_time }}</time></div>{% else %}<div class="empty-state">No parking activity yet</div>{% endfor %}</div></section></div></main></div>
-<div class="modal" id="bookingModal" aria-hidden="true"><div class="modal-backdrop"></div><div class="modal-card"><button class="modal-close" aria-label="Close">×</button><div class="modal-icon">P</div><p class="eyebrow">NEW PARKING SESSION</p><h2>Book <span id="modalSlot">P01</span></h2><p>Enter the vehicle registration number to confirm your booking.</p><form id="bookingForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="slot_number" id="slotNumber"><label for="vehicleNumber">Vehicle registration number</label><input id="vehicleNumber" name="vehicle_number" maxlength="12" placeholder="MH 12 AB 1234" autocomplete="off" required><small>Example: MH12AB1234</small><button class="primary-button" type="submit">Confirm Booking</button></form></div></div>
-<div class="toast" id="toast"><span id="toastIcon">✓</span><div><b id="toastTitle">Success</b><p id="toastMessage"></p></div></div>
-<script src="{{ url_for('static', filename='js/script.js') }}"></script></body></html>
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SmartPark · Parking Dashboard</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+<div class="app-shell">
+
+    <aside class="sidebar" id="sidebar">
+        <a class="brand" href="/">
+            <span class="brand-mark">S</span>
+            <span>Smart<span>Park</span></span>
+        </a>
+
+        <nav>
+            <a class="nav-link active" href="/"><span>▦</span>Dashboard</a>
+            <a class="nav-link" href="/history"><span>◷</span>Parking History</a>
+            <a class="nav-link" href="/admin"><span>⚙</span>Admin Panel</a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="system-state">
+                <i></i>
+                <div>
+                    <b>System Operational</b>
+                    <small>Live monitoring</small>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main>
+        <header class="topbar">
+            <button class="menu-button" id="menuButton" aria-label="Toggle navigation">☰</button>
+
+            <div>
+                <p class="eyebrow">SMART CITY OPERATIONS</p>
+                <h1>Parking Overview</h1>
+            </div>
+
+            <div class="top-actions">
+                <form class="search" action="/" method="get">
+                    <span>⌕</span>
+                    <input name="q" value="{{ search }}" placeholder="Search vehicle or slot">
+                </form>
+
+                {% if session.get('user_id') %}
+                    <a class="avatar" href="/logout" title="Logout">A</a>
+                {% else %}
+                    <a class="avatar login-avatar" href="/login" title="Admin login">→</a>
+                {% endif %}
+            </div>
+        </header>
+
+        <div class="content">
+
+            <section class="stats-grid">
+
+                <article class="stat-card">
+                    <div class="stat-icon blue">▦</div>
+                    <div>
+                        <p>Total Parking Slots</p>
+                        <h2 id="totalSlots">{{ stats.total }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon green">✓</div>
+                    <div>
+                        <p>Available Slots</p>
+                        <h2 id="availableSlots">{{ stats.available }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon red">P</div>
+                    <div>
+                        <p>Occupied Slots</p>
+                        <h2 id="occupiedSlots">{{ stats.occupied }}</h2>
+                    </div>
+                </article>
+
+                <article class="stat-card">
+                    <div class="stat-icon amber">%</div>
+                    <div>
+                        <p>Occupancy</p>
+                        <h2 id="occupancyValue">{{ stats.percentage }}%</h2>
+                    </div>
+                    <div class="progress">
+                        <span id="occupancyBar" data-width="{{ stats.percentage }}"></span>
+                    </div>
+                </article>
+
+            </section>
+
+            <section class="dashboard-grid">
+
+                <div class="panel slots-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">LIVE STATUS</p>
+                            <h3>Parking Slots</h3>
+                        </div>
+
+                        <div class="legend">
+                            <span><i class="green-dot"></i>Available</span>
+                            <span><i class="red-dot"></i>Occupied</span>
+                        </div>
+                    </div>
+
+                    <div class="slots-grid" id="slotsGrid">
+
+                        {% for slot in slots %}
+                        <article class="parking-slot {{ slot.status }}" data-slot="{{ slot.slot_number }}">
+
+                            <div class="slot-top">
+                                <strong>{{ slot.slot_number }}</strong>
+                                <span class="status-pill">
+                                    {{ 'Occupied' if slot.status == 'occupied' else 'Available' }}
+                                </span>
+                            </div>
+
+                            <div class="slot-visual">
+                                <div class="car">🚗</div>
+                            </div>
+
+                            <div class="slot-info">
+                                {% if slot.status == 'occupied' %}
+                                    <span>VEHICLE</span>
+                                    <b>{{ slot.vehicle_number }}</b>
+                                {% else %}
+                                    <span>STATUS</span>
+                                    <b>Ready to park</b>
+                                {% endif %}
+                            </div>
+
+                            {% if session.get('role') == 'admin' %}
+                                {% if slot.status == 'available' %}
+                                    <button class="slot-button book" data-slot="{{ slot.slot_number }}">
+                                        Book Slot
+                                    </button>
+                                {% else %}
+                                    <button class="slot-button release" data-slot="{{ slot.slot_number }}">
+                                        Release Slot
+                                    </button>
+                                {% endif %}
+                            {% else %}
+                                <a class="slot-button" href="/login">
+                                    Admin Login Required
+                                </a>
+                            {% endif %}
+
+                        </article>
+                        {% endfor %}
+
+                    </div>
+                </div>
+
+                <div class="panel analytics-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">ANALYTICS</p>
+                            <h3>Utilisation</h3>
+                        </div>
+                    </div>
+
+                    <div class="chart-wrap">
+                        <canvas id="utilisationChart"></canvas>
+                    </div>
+
+                    <div class="chart-caption">
+                        <span>Available <b id="chartAvailable">{{ stats.available }}</b></span>
+                        <span>Occupied <b id="chartOccupied">{{ stats.occupied }}</b></span>
+                    </div>
+                </div>
+
+            </section>
+
+            <section class="panel activity-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">LATEST EVENTS</p>
+                        <h3>Recent Parking Activity</h3>
+                    </div>
+                    <a href="/history">View history →</a>
+                </div>
+
+                <div class="activity-list">
+                    {% for item in history %}
+                    <div class="activity-item">
+                        <div class="activity-icon {{ 'out' if item.status == 'released' else 'in' }}">
+                            {{ '↗' if item.status == 'released' else '↙' }}
+                        </div>
+
+                        <div>
+                            <b>{{ item.vehicle_number }}</b>
+                            <span>
+                                {{ item.slot_number }} ·
+                                {{ 'Released' if item.status == 'released' else 'Parked' }}
+                            </span>
+                        </div>
+
+                        <time>{{ item.release_time or item.booking_time }}</time>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">No parking activity yet</div>
+                    {% endfor %}
+                </div>
+            </section>
+
+        </div>
+    </main>
+</div>
+
+<!-- Booking Modal -->
+<div class="modal" id="bookingModal" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+
+    <div class="modal-card">
+        <button class="modal-close" aria-label="Close">×</button>
+
+        <div class="modal-icon">P</div>
+        <p class="eyebrow">NEW PARKING SESSION</p>
+
+        <h2>Book <span id="modalSlot">P01</span></h2>
+
+        <p>Enter the vehicle registration number to confirm your booking.</p>
+
+        <form id="bookingForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="slot_number" id="slotNumber">
+
+            <label for="vehicleNumber">Vehicle registration number</label>
+
+            <input
+                id="vehicleNumber"
+                name="vehicle_number"
+                maxlength="12"
+                placeholder="MH 12 AB 1234"
+                autocomplete="off"
+                required
+            >
+
+            <small>Example: MH12AB1234</small>
+
+            <button class="primary-button" type="submit">
+                Confirm Booking
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Notification -->
+<div class="toast" id="toast">
+    <span id="toastIcon">✓</span>
+    <div>
+        <b id="toastTitle">Success</b>
+        <p id="toastMessage"></p>
+    </div>
+</div>
+
+<script>
+    const occupancyBar = document.getElementById('occupancyBar');
+
+    if (occupancyBar) {
+        occupancyBar.style.width = occupancyBar.dataset.width + '%';
+    }
+</script>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+</body>
+</html>
